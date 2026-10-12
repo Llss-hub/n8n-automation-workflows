@@ -1,0 +1,145 @@
+{
+  "name": "C1-表单提交自动分类入库",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "zixun",
+        "formTitle": "客户咨询登记",
+        "formDescription": "请填写你的需求，我们看到后会尽快联系你。",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "name",
+              "fieldLabel": "姓名",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "请输入你的称呼"
+            },
+            {
+              "fieldName": "contact",
+              "fieldLabel": "联系方式（微信或手机号）",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "方便我们联系你的方式"
+            },
+            {
+              "fieldName": "demand",
+              "fieldLabel": "需求描述",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "说说你遇到了什么问题，或者想要什么"
+            }
+          ]
+        },
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000001",
+      "name": "表单触发",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [-420, 0],
+      "webhookId": "zixunform0001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "deepSeekApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-chat', messages: [ { role: 'user', content: '你是销售助理。请判断下面这条客户咨询的意向等级。等级只能是 高、中、低 三者之一（预算明确、时间紧急、需求具体算高；只是随便问问算低）。然后用不超过 35 个字总结客户的核心需求。严格按这个格式输出，只输出一行，不要任何多余的解释或客套：等级｜要点\\n\\n客户姓名：' + $json.name + '\\n客户需求：' + $json.demand } ], max_tokens: 120, stream: false } }}",
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000002",
+      "name": "AI判断",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [-180, 0]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "include": "none",
+        "fields": {
+          "values": [
+            {
+              "name": "姓名",
+              "type": "stringValue",
+              "stringValue": "={{ $('表单触发').item.json.name }}"
+            },
+            {
+              "name": "联系方式",
+              "type": "stringValue",
+              "stringValue": "={{ $('表单触发').item.json.contact }}"
+            },
+            {
+              "name": "需求描述",
+              "type": "stringValue",
+              "stringValue": "={{ $('表单触发').item.json.demand }}"
+            },
+            {
+              "name": "意向等级",
+              "type": "stringValue",
+              "stringValue": "={{ (($json.choices[0].message.content || '').replace(/\\|/g, '｜').split('｜')[0] || '未识别').trim() }}"
+            },
+            {
+              "name": "需求要点",
+              "type": "stringValue",
+              "stringValue": "={{ (($json.choices[0].message.content || '').replace(/\\|/g, '｜').split('｜').slice(1).join('｜').trim()) || '(未提取到要点)' }}"
+            },
+            {
+              "name": "提交时间",
+              "type": "stringValue",
+              "stringValue": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000003",
+      "name": "整理字段",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [60, 0]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "客户咨询记录"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": null
+        },
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000004",
+      "name": "存入表格",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [300, 0]
+    }
+  ],
+  "connections": {
+    "表单触发": {
+      "main": [[{ "node": "AI判断", "type": "main", "index": 0 }]]
+    },
+    "AI判断": {
+      "main": [[{ "node": "整理字段", "type": "main", "index": 0 }]]
+    },
+    "整理字段": {
+      "main": [[{ "node": "存入表格", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

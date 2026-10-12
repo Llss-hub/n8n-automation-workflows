@@ -1,0 +1,85 @@
+{
+  "name": "C2-每日汇总推送到群",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 18,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "c2000000-0000-4000-8000-000000000001",
+      "name": "定时触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-420, 0]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "客户咨询记录"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "c2000000-0000-4000-8000-000000000002",
+      "name": "读取咨询记录",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [-180, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = items.map((i) => i.json);\n\n// 北京时间（UTC+8）。注意：Code 节点里的 new Date() 走的是 UTC，\n// 直接取日期会在凌晨时段算错一天，所以手动加 8 小时再取日期。\nconst BEIJING_OFFSET = 8 * 60 * 60 * 1000;\nconst today = new Date(Date.now() + BEIJING_OFFSET).toISOString().slice(0, 10);\n\nconst todays = rows.filter((r) => String(r['提交时间'] || '').startsWith(today));\n\nif (todays.length === 0) {\n  return [{ json: { text: `📋 客户咨询日报 · ${today}\\n\\n今天没有新的咨询记录。`, count: 0 } }];\n}\n\nconst high = todays.filter((r) => String(r['意向等级'] || '').includes('高')).length;\n\nconst lines = todays.map((r, n) => {\n  const name = r['姓名'] || '(未填)';\n  const level = r['意向等级'] || '未识别';\n  const point = r['需求要点'] || '(无要点)';\n  const contact = r['联系方式'] || '(未填)';\n  return `${n + 1}. ${name}｜${level}\\n   ${point}\\n   联系：${contact}`;\n});\n\nconst text = `📋 客户咨询日报 · ${today}\\n今日新增 ${todays.length} 条，其中高意向 ${high} 条\\n\\n${lines.join('\\n\\n')}`;\n\nreturn [{ json: { text, count: todays.length } }];"
+      },
+      "id": "c2000000-0000-4000-8000-000000000003",
+      "name": "汇总并生成消息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [60, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.feishu.cn/open-apis/bot/v2/hook/把这里换成你的机器人Webhook地址",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { msg_type: 'text', content: { text: $json.text } } }}",
+        "options": {}
+      },
+      "id": "c2000000-0000-4000-8000-000000000004",
+      "name": "推送飞书",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [300, 0]
+    }
+  ],
+  "connections": {
+    "定时触发": {
+      "main": [[{ "node": "读取咨询记录", "type": "main", "index": 0 }]]
+    },
+    "读取咨询记录": {
+      "main": [[{ "node": "汇总并生成消息", "type": "main", "index": 0 }]]
+    },
+    "汇总并生成消息": {
+      "main": [[{ "node": "推送飞书", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

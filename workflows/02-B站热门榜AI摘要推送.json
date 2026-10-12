@@ -1,0 +1,163 @@
+{
+  "name": "B-B站热门榜AI总结并推送飞书",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "b1000000-0000-4000-8000-000000000001",
+      "name": "定时触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-540, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.bilibili.com/x/web-interface/popular?ps=10&pn=1",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000002",
+      "name": "抓取B站热门",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.list",
+        "include": "noOtherFields"
+      },
+      "id": "b1000000-0000-4000-8000-000000000003",
+      "name": "拆成多条",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-60, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "deepSeekApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-chat', messages: [ { role: 'user', content: '请用不超过40个中文字总结这条B站视频讲了什么，直接给结论，不要开场白。标题：' + $json.title + '。简介：' + ($json.desc || '无') } ], max_tokens: 100, stream: false } }}",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000004",
+      "name": "AI总结",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [180, 0]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "include": "none",
+        "fields": {
+          "values": [
+            { "name": "标题", "type": "stringValue", "stringValue": "={{ $('拆成多条').item.json.title }}" },
+            { "name": "UP主", "type": "stringValue", "stringValue": "={{ $('拆成多条').item.json.owner.name }}" },
+            { "name": "播放量", "type": "numberValue", "numberValue": "={{ $('拆成多条').item.json.stat.view }}" },
+            { "name": "点赞数", "type": "numberValue", "numberValue": "={{ $('拆成多条').item.json.stat.like }}" },
+            { "name": "视频链接", "type": "stringValue", "stringValue": "={{ $('拆成多条').item.json.short_link_v2 }}" },
+            { "name": "抓取时间", "type": "stringValue", "stringValue": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}" },
+            { "name": "AI总结", "type": "stringValue", "stringValue": "={{ $json.choices[0].message.content }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000005",
+      "name": "整理字段",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "热门视频榜"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": null
+        },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000006",
+      "name": "存入表格",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const rows = items.map((i) => i.json);\nconst stamp = (rows[0] && rows[0]['抓取时间']) || '';\n\nconst lines = rows.map((r, n) => {\n  const title = r['标题'] || '(无标题)';\n  const up = r['UP主'] || '';\n  const view = r['播放量'] == null ? '?' : r['播放量'];\n  const sum = r['AI总结'] || '(摘要生成失败)';\n  return `${n + 1}. ${title}\\n   ${up} · ${view} 播放\\n   ${sum}`;\n});\n\nconst text = `📺 B站热门榜 · ${stamp}\\n\\n${lines.join('\\n\\n')}`;\n\nreturn [{ json: { text, count: rows.length } }];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000007",
+      "name": "生成通知文本",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.feishu.cn/open-apis/bot/v2/hook/把这里换成你的机器人Webhook地址",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { msg_type: 'text', content: { text: $json.text } } }}",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000008",
+      "name": "发飞书通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [1140, 0]
+    }
+  ],
+  "connections": {
+    "定时触发": {
+      "main": [[{ "node": "抓取B站热门", "type": "main", "index": 0 }]]
+    },
+    "抓取B站热门": {
+      "main": [[{ "node": "拆成多条", "type": "main", "index": 0 }]]
+    },
+    "拆成多条": {
+      "main": [[{ "node": "AI总结", "type": "main", "index": 0 }]]
+    },
+    "AI总结": {
+      "main": [[{ "node": "整理字段", "type": "main", "index": 0 }]]
+    },
+    "整理字段": {
+      "main": [[{ "node": "存入表格", "type": "main", "index": 0 }]]
+    },
+    "存入表格": {
+      "main": [[{ "node": "生成通知文本", "type": "main", "index": 0 }]]
+    },
+    "生成通知文本": {
+      "main": [[{ "node": "发飞书通知", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
